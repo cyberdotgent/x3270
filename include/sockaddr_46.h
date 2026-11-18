@@ -27,13 +27,20 @@
 
 /*
  *	sockaddr_46.h
- *		IPv4/IPv6 sockaddr structure.
+ *		IPv4/IPv6 (and Unix-domain) sockaddr structure.
  */
 
 #define _SOCKADDR_46	1
+
+#if !defined(_WIN32) /*[*/
+# include <sys/un.h>
+#endif /*]*/
 
 typedef union {
     struct sockaddr sa;
     struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
+#if !defined(_WIN32) /*[*/
+    struct sockaddr_un un;
+#endif /*]*/
 } sockaddr_46_t;

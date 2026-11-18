@@ -40,7 +40,8 @@ typedef enum {
     STD_DS_HOST,        /* S: */
     BIND_LOCK_HOST,     /* B:, now a no-op */
     NO_VERIFY_CERT_HOST,/* Y: */
-    NO_TELNET_HOST	/* T: */
+    NO_TELNET_HOST,	/* T: */
+    UNIX_HOST		/* U:, Unix-domain socket (not on Windows) */
 } host_flags_t;
 #define HOST_nFLAG(flags, t)    ((flags & (1 << t)) != 0)
 #define SET_HOST_nFLAG(flags, t) flags |= 1 << t

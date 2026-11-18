@@ -42,12 +42,17 @@ class playback():
     thread = None
 
     # Initialization.
-    def __init__(self, ct:cti.cti, trace_file:str, port=4001, ipv6=False):
+    def __init__(self, ct:cti.cti, trace_file:str, port=4001, ipv6=False, unix_path=None):
         self.ct = ct
-        self.listensocket = socket.socket(socket.AF_INET6 if ipv6 else socket.AF_INET, socket.SOCK_STREAM, 0)
-        self.listensocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        loopback = '::1' if ipv6 else '127.0.0.1'
-        self.listensocket.bind((loopback, port))
+        if unix_path != None:
+            # Listen on a Unix-domain socket instead of TCP.
+            self.listensocket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
+            self.listensocket.bind(unix_path)
+        else:
+            self.listensocket = socket.socket(socket.AF_INET6 if ipv6 else socket.AF_INET, socket.SOCK_STREAM, 0)
+            self.listensocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            loopback = '::1' if ipv6 else '127.0.0.1'
+            self.listensocket.bind((loopback, port))
         self.listensocket.listen()
         if trace_file != None:
             self.file = open(trace_file, 'r', encoding='utf-8')

@@ -346,6 +346,12 @@ static int ha_ix = 0;
 static rp_t host_rp = NULL;
 static rp_t proxy_rp = NULL;
 
+#if !defined(_WIN32) /*[*/
+# define HA_UNIX(ix)	(haddr[ix].sa.sa_family == AF_UNIX)
+#else /*][*/
+# define HA_UNIX(ix)	false
+#endif /*]*/
+
 /* EOR processing resumption state. */
 typedef struct {
     size_t offset;
@@ -367,6 +373,19 @@ popup_a_sockerr(const char *fmt, ...)
     buffer = txVasprintf(fmt, args);
     va_end(args);
     connect_error("%s: %s", buffer, socket_strerror(socket_errno()));
+}
+
+/* Describe the host or proxy being connected to, for error messages. */
+static const char *
+connect_target(void)
+{
+    if (proxy_type != PT_NONE) {
+	return txAsprintf("Proxy %s, port %d", proxy_host, proxy_port);
+    }
+    if (HOST_FLAG(UNIX_HOST)) {
+	return hostname;
+    }
+    return txAsprintf("%s, port %d", hostname, current_port);
 }
 
 /* The host connection timed out. */
@@ -397,7 +416,8 @@ connect_to(int ix, bool noisy, bool *pending)
 			}
 
     /* create the socket */
-    if ((sock = socket(haddr[ix].sa.sa_family, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
+    if ((sock = socket(haddr[ix].sa.sa_family, SOCK_STREAM,
+		    HA_UNIX(ix)? 0: IPPROTO_TCP)) == INVALID_SOCKET) {
 	popup_a_sockerr("socket");
 	return INVALID_SOCKET;
     }
@@ -433,8 +453,13 @@ connect_to(int ix, bool noisy, bool *pending)
 #endif /*]*/
 
     /* Init TLS. */
-    portp = (haddr[ix].sa.sa_family == AF_INET)? &haddr[ix].sin.sin_port: &haddr[ix].sin6.sin6_port;
-    port = ntohs(*portp);
+    if (HA_UNIX(ix)) {
+	portp = NULL;
+	port = 0;
+    } else {
+	portp = (haddr[ix].sa.sa_family == AF_INET)? &haddr[ix].sin.sin_port: &haddr[ix].sin6.sin6_port;
+	port = ntohs(*portp);
+    }
     if (appres.tls992 && port == TELNETS_PORT) {
 	SET_HOST_nFLAG(host_flags, TLS_HOST);
     }
@@ -445,7 +470,9 @@ connect_to(int ix, bool noisy, bool *pending)
 	}
     }
 
-    if (numeric_host_and_port(&haddr[ix].sa, ha_len[ix], hn, sizeof(hn), pn,
+    if (HA_UNIX(ix)) {
+	vctrace(TC_SOCKET, "Trying %s...\n", hostname);
+    } else if (numeric_host_and_port(&haddr[ix].sa, ha_len[ix], hn, sizeof(hn), pn,
 		sizeof(pn), &errmsg)) {
 	vctrace(TC_SOCKET, "Trying %s, port %s...\n", hn, pn);
 	telnet_gui_connecting(hn, pn);
@@ -488,10 +515,7 @@ connect_to(int ix, bool noisy, bool *pending)
 #endif /*]*/
 	} else {
 	    if (noisy) {
-		popup_a_sockerr("%s%s, port %d",
-			(proxy_type != PT_NONE)? "Proxy ": "",
-			(proxy_type != PT_NONE)? proxy_host : hostname,
-			(proxy_type != PT_NONE)? proxy_port : current_port);
+		popup_a_sockerr("%s", connect_target());
 	    }
 	    close_fail;
 	}
@@ -677,6 +701,32 @@ net_connect(const char *host, char *portname, char *accept, bool ls, socket_t *s
     } else {
 	proxy_spec = NULL;
     }
+
+#if !defined(_WIN32) /*[*/
+    if (HOST_FLAG(UNIX_HOST)) {
+	/* Unix-domain socket: no proxy, no TLS tunnel, no name resolution. */
+	if (proxy_spec != NULL) {
+	    connect_error("Proxies are not supported with Unix-domain sockets");
+	    return NC_INVALID;
+	}
+	if (HOST_FLAG(TLS_HOST)) {
+	    connect_error("TLS is not supported with Unix-domain sockets");
+	    return NC_INVALID;
+	}
+	if (strlen(host) >= sizeof(haddr[0].un.sun_path)) {
+	    connect_error("Unix-domain socket path too long: %s", scatv(host));
+	    return NC_INVALID;
+	}
+	memset((char *)&haddr, 0, sizeof(haddr));
+	haddr[0].un.sun_family = AF_UNIX;
+	strcpy(haddr[0].un.sun_path, host);
+	ha_len[0] = sizeof(haddr[0].un);
+	num_ha = 1;
+	ha_ix = 0;
+	current_port = 0;
+	return finish_connect(socket);
+    }
+#endif /*]*/
 
     if (proxy_spec != NULL) {
 	proxytype_t pt;
@@ -986,7 +1036,12 @@ net_connected(void)
     }
 
     if (cstate != TLS_PENDING && !proxy_pending) {
-	vctrace(TC_SOCKET, "Connected to %s, port %u.\n", hostname, current_port);
+	if (HOST_FLAG(UNIX_HOST)) {
+	    vctrace(TC_SOCKET, "Connected to %s.\n", hostname);
+	} else {
+	    vctrace(TC_SOCKET, "Connected to %s, port %u.\n", hostname,
+		    current_port);
+	}
     }
 
     if (ut_getenv("BLOCKING_CONNECT") != NULL && non_blocking() < 0) {
@@ -1196,10 +1251,7 @@ output_possible(iosrc_t fd _is_unused, ioid_t id _is_unused)
 		    return;
 		}
 	    }
-	    connect_errno(e, "%s%s, port %d",
-			(proxy_type != PT_NONE)? "Proxy ": "",
-			(proxy_type != PT_NONE)? proxy_host : hostname,
-			(proxy_type != PT_NONE)? proxy_port : current_port);
+	    connect_errno(e, "%s", connect_target());
 	} else {
 	    assert(0);
 	}
@@ -1371,10 +1423,7 @@ net_input(iosrc_t fd _is_unused, ioid_t id _is_unused)
 		vctrace(TC_SOCKET, "RCVD socket error %d (%s)\n", events.iErrorCode[FD_CONNECT_BIT],
 			win32_strerror(events.iErrorCode[FD_CONNECT_BIT]));
 		if (ha_ix == num_ha - 1) {
-		    connect_error("%s%s, port %d: %s",
-			    (proxy_type != PT_NONE)? "Proxy ": "",
-			    (proxy_type != PT_NONE)? proxy_host : hostname,
-			    (proxy_type != PT_NONE)? proxy_port : current_port,
+		    connect_error("%s: %s", connect_target(),
 			    win32_strerror(events.iErrorCode[FD_CONNECT_BIT]));
 		} else {
 		    bool pending;
@@ -1493,10 +1542,7 @@ net_input(iosrc_t fd _is_unused, ioid_t id _is_unused)
 		socket_strerror(socket_errno()));
 	if (cstate == TCP_PENDING) {
 	    if (ha_ix == num_ha - 1) {
-		popup_a_sockerr("%s%s, port %d",
-			(proxy_type != PT_NONE)? "Proxy ": "",
-			(proxy_type != PT_NONE)? proxy_host : hostname,
-			(proxy_type != PT_NONE)? proxy_port : current_port);
+		popup_a_sockerr("%s", connect_target());
 	    } else {
 		bool pending;
 		socket_t s;
@@ -1971,6 +2017,7 @@ telnet_fsm(unsigned char c, bool *eor)
 	case TELOPT_STARTTLS:
 	    if (c == TELOPT_STARTTLS &&
 		    (!sio_supported() ||
+		     HOST_FLAG(UNIX_HOST) ||
 		     !appres.tls.starttls ||
 		     secure_connection)) {
 		refused_tls = true;
@@ -4050,6 +4097,9 @@ net_query_host(void)
 	    return txAsprintf("process %s", hostname);
 	}
 #endif /*]*/
+	if (HOST_FLAG(UNIX_HOST)) {
+	    return txAsprintf("unix %s", hostname);
+	}
 	return txAsprintf("host %s %u", hostname, current_port);
     } else {
 	return "";

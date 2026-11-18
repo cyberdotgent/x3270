@@ -29,6 +29,8 @@
 
 import os
 from subprocess import Popen, PIPE, DEVNULL
+import sys
+import tempfile
 import unittest
 
 from Common.Test.cti import *
@@ -59,6 +61,54 @@ class TestS3270ConnectFail(cti):
         self.assertTrue(stdout[2].startswith('L U U N N 4 24 80 0 0 0x0 '))
         self.assertEqual('error', stdout[3])
         self.assertEqual('', stdout[4])
+
+    # s3270 connect fail test, Unix-domain socket that does not exist
+    @unittest.skipIf(sys.platform.startswith('win'), 'Unix-domain sockets are not supported on Windows')
+    def test_s3270_connect_fail_unix(self):
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'nonexistent.sock')
+
+            # Start s3270.
+            s3270 = Popen(vgwrap(["s3270"]), stdin=PIPE, stdout=PIPE)
+            self.children.append(s3270)
+
+            # Push a trivial command at it.
+            s3270.stdin.write(f'Connect(U:{path})\n'.encode('utf8'))
+
+            # Decode the result.
+            stdout = s3270.communicate()[0].decode('utf8').split(os.linesep)
+
+            # Wait for the process to exit successfully.
+            self.vgwait(s3270)
+
+            # Test the output.
+            self.assertEqual(5, len(stdout))
+            self.assertTrue(stdout[0].startswith('data: Connection failed:'))
+            self.assertTrue(stdout[1].startswith(f'data: {path}: '))
+            self.assertTrue('No such file' in stdout[1])
+            self.assertEqual('error', stdout[3])
+            self.assertEqual('', stdout[4])
+
+    # s3270 connect fail test, Unix-domain socket with a port
+    def test_s3270_connect_fail_unix_port(self):
+
+        # Start s3270.
+        s3270 = Popen(vgwrap(["s3270"]), stdin=PIPE, stdout=PIPE)
+        self.children.append(s3270)
+
+        # Push a trivial command at it.
+        s3270.stdin.write(b'Connect(U:/tmp/foo:23)\n')
+
+        # Decode the result.
+        stdout = s3270.communicate()[0].decode('utf8').split(os.linesep)
+
+        # Wait for the process to exit successfully.
+        self.vgwait(s3270)
+
+        # Test the output.
+        self.assertTrue(stdout[0].startswith('data: Hostname syntax error: port not allowed with U:'), stdout[0])
+        self.assertEqual('error', stdout[-2])
 
 if __name__ == '__main__':
     unittest.main()
