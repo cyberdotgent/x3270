@@ -35,7 +35,11 @@
 #include "split_host.h"
 #include "utils.h"
 
-static const char *pfxstr = "AaCcLlNnPpSsBbYyTt";
+static const char *pfxstr = "AaCcLlNnPpSsBbYyTt"
+#if !defined(_WIN32) /*[*/
+    "Uu"
+#endif /*]*/
+    ;
 
 /**
  * Return the set of host prefixes.
@@ -74,7 +78,7 @@ host_prefixes(void)
  * @param[out] host	Returned Malloc'd hostname, isolated from other parts
  * @param[out] port	Returned Malloc'd port, or NULL
  * @param[out] accept	Returned Malloc'd accept hostname, or NULL
- * @param[out] prefixes	Returned bitmap of prefixes, indexed by ACLNPSBYT (bit
+ * @param[out] prefixes	Returned bitmap of prefixes, indexed by ACLNPSBYTU (bit
  * 			 0 is A, bit 1 is C, bit 2 is L, etc.)
  * @param[out] error	Returned error text for failure, or NULL
  *
@@ -348,6 +352,16 @@ new_split_host(char *raw, char **lu, char **host, char **port, char **accept,
 	s++;
     }
     part[part_ix][n_ch] = '\0';
+
+    /* A Unix-domain socket is a path name; it has no port. */
+    if (HOST_nFLAG(*prefixes, UNIX_HOST) && *port != NULL) {
+	Replace(*lu, NULL);
+	Replace(*host, NULL);
+	Replace(*port, NULL);
+	Replace(*accept, NULL);
+	errmsg = "port not allowed with U: (Unix-domain socket)";
+	goto done;
+    }
 
     /* Success! */
     rc = true;

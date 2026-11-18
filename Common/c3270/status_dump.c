@@ -172,10 +172,11 @@ status_dump(void)
 		(local_process && !strlen(current_host))? "(shell)":
 #endif /*]*/
 		current_host);
+	if (
 #if defined(LOCAL_PROCESS) /*[*/
-	if (!local_process)
+	    !local_process &&
 #endif /*]*/
-	{
+	    !HOST_FLAG(UNIX_HOST)) {
 	    vb_appendf(&r, "  %s %d\n", get_message("port"), current_port);
 	}
 	if (net_secure_connection()) {

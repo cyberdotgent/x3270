@@ -877,7 +877,8 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n", cyear);
 	    HOST_nFLAG(prefixes, NON_TN3270E_HOST) ||
 	    HOST_nFLAG(prefixes, PASSTHRU_HOST) ||
 	    HOST_nFLAG(prefixes, STD_DS_HOST) ||
-	    HOST_nFLAG(prefixes, BIND_LOCK_HOST)) {
+	    HOST_nFLAG(prefixes, BIND_LOCK_HOST) ||
+	    HOST_nFLAG(prefixes, UNIX_HOST)) {
 	usage(NULL);
     }
 

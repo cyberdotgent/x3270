@@ -614,15 +614,22 @@ host_connect(const char *n, enum iaction ia)
     }
 
     has_colons = (strchr(chost, ':') != NULL);
-    Replace(qualified_host, xs_buffer("%s%s%s%s%s:%s%s%s",
-		HOST_FLAG(TLS_HOST)? "L:": "",
-		HOST_FLAG(NO_VERIFY_CERT_HOST)? "Y:": "",
-		has_colons? "[": "",
-		chost,
-		has_colons? "]": "",
-		port,
-		(accept != NULL)? "=": "",
-		(accept != NULL)? accept: ""));
+    if (HOST_FLAG(UNIX_HOST)) {
+	Replace(qualified_host, xs_buffer("U:%s%s%s",
+		    has_colons? "[": "",
+		    chost,
+		    has_colons? "]": ""));
+    } else {
+	Replace(qualified_host, xs_buffer("%s%s%s%s%s:%s%s%s",
+		    HOST_FLAG(TLS_HOST)? "L:": "",
+		    HOST_FLAG(NO_VERIFY_CERT_HOST)? "Y:": "",
+		    has_colons? "[": "",
+		    chost,
+		    has_colons? "]": "",
+		    port,
+		    (accept != NULL)? "=": "",
+		    (accept != NULL)? accept: ""));
+    }
 
     /* Attempt contact. */
     host_retry_mode = appres.reconnect || appres.retry;

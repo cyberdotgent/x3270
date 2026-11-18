@@ -547,14 +547,14 @@ popup_about_status(void)
 		MAKE_VALUE(current_host);
 	    }
 	}
+	if (
 #if defined(LOCAL_PROCESS) /*[*/
-	if (!local_process) {
+	    !local_process &&
 #endif /*]*/
+	    !HOST_FLAG(UNIX_HOST)) {
 	    MAKE_LABEL2(lazyaf("  %s", get_message("port")));
 	    MAKE_VALUE(lazyaf("%d", current_port));
-#if defined(LOCAL_PROCESS) /*[*/
 	}
-#endif /*]*/
 	if (net_secure_connection()) {
 	    const char *session, *cert;
 	    const char *newline;

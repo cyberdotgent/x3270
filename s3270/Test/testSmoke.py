@@ -31,6 +31,8 @@ import unittest
 from subprocess import Popen, PIPE, DEVNULL
 import requests
 import os
+import sys
+import tempfile
 import Common.Test.playback as playback
 import Common.Test.cti as cti
 
@@ -99,6 +101,39 @@ class TestS3270Smoke(cti.cti):
         self.s3270_3270_smoke()
     def test_s3270_3270_smoke_ipv6(self):
         self.s3270_3270_smoke(ipv6=True)
+
+    # s3270 3270 smoke test over a Unix-domain socket
+    @unittest.skipIf(sys.platform.startswith('win'), 'Unix-domain sockets are not supported on Windows')
+    def test_s3270_3270_unix_smoke(self):
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'tn3270.sock')
+
+            # Start 'playback' on the Unix-domain socket to read s3270's output.
+            with playback.playback(self, 's3270/Test/ibmlink.trc', unix_path=path) as p:
+
+                # Start s3270.
+                s3270 = Popen(cti.vgwrap(["s3270", "-xrm", "s3270.contentionResolution: false",
+                    f"U:{path}"]), stdin=PIPE, stdout=PIPE)
+                self.children.append(s3270)
+
+                # Feed s3270 some actions.
+                s3270.stdin.write(b"Wait(3270Mode)\n")
+                s3270.stdin.write(b"Query(Host)\n")
+                s3270.stdin.write(b"PF(3)\n")
+                s3270.stdin.flush()
+
+                # Make sure the emulator does what we expect.
+                # (Quit only afterwards: unlike TCP, sending on a Unix-domain
+                # socket whose peer has gone away fails immediately.)
+                p.match()
+
+            # Check the Query(Host) output.
+            out = s3270.communicate(b"Quit()\n")[0].decode('utf8').split(os.linesep)
+            self.assertIn(f'data: unix {path}', out)
+
+        # Wait for the process to exit.
+        self.vgwait(s3270)
 
     # s3270 httpd smoke test
     def s3270_httpd_smoke(self, ipv6=False):
