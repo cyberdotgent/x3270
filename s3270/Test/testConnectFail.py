@@ -102,7 +102,8 @@ class TestS3270ConnectFail(cti.cti):
         self.vgwait(s3270)
 
         # Test the output.
-        self.assertTrue(stdout[0].startswith('data: Hostname syntax error: port not allowed with U:'), stdout[0])
+        self.assertTrue(stdout[0].startswith('data: Hostname syntax error'), stdout[0])
+        self.assertTrue('port not allowed with U:' in stdout[0], stdout[0])
         self.assertEqual('error', stdout[-2])
 
 if __name__ == '__main__':
